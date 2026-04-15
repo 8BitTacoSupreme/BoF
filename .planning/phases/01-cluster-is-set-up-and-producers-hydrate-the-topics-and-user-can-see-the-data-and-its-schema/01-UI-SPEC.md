@@ -65,15 +65,16 @@ Declared values (must be multiples of 4):
 |-------|-------|-------|
 | xs | 4px | Icon gaps, inline chip padding, border accents |
 | sm | 8px | List item internal padding (vertical), tag spacing |
-| md | 16px | Panel internal padding, sidebar item padding (horizontal) |
+| md | 16px | Panel internal padding, sidebar item padding (horizontal and vertical) |
 | lg | 24px | Section header bottom margin, panel-to-panel gap |
 | xl | 32px | Header vertical padding budget |
 | 2xl | 48px | Not used in Phase 1 |
 | 3xl | 64px | Not used in Phase 1 |
 
 Exceptions:
-- Sidebar topic list items: 12px vertical padding (Tailwind `py-3`) — between sm and md, required for touch-comfortable click targets at narrow widths
 - Header: 56px total height (14px top + 14px bottom + 28px content) — aligns to 4px grid
+
+Touch target verification — sidebar items: `py-4` (16px top + 16px bottom) + 14px font line = 46px — exceeds 44px minimum.
 
 ---
 
@@ -84,11 +85,13 @@ Exceptions:
 | Body | 14px | 400 (regular) | 1.5 | Message table cells, schema field rows, helper text |
 | Label | 12px | 400 (regular) | 1.4 | Topic domain badges, message metadata (partition, offset, timestamp), table column headers |
 | Heading | 16px | 600 (semibold) | 1.25 | Panel section titles ("Available Topics", "Schema for X", "Messages") |
-| Display | 20px | 700 (bold) | 1.2 | App title in header only |
+| Display | 20px | 600 (semibold) | 1.2 | App title in header only |
 
 Font stack: `font-sans` (Tailwind default — system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto)
 
 Code / monospace elements: `font-mono text-xs` (12px) — topic names in sidebar, field type values in schema table, raw JSON view, partition:offset metadata
+
+Weights in use: 400 (regular) and 600 (semibold) only. Maximum 2 weights enforced.
 
 ---
 
@@ -126,10 +129,10 @@ Selected sidebar item: `bg-purple-600 text-white font-semibold` (carried from fl
 ### TopicSidebar
 
 - Container: `bg-gray-800 h-full w-64 flex flex-col`
-- Header row: topic count label (12px regular) + refresh icon button (Heroicon refresh, 20px)
+- Header row: topic count label (12px regular) + refresh icon button (Heroicon refresh, 20px, `aria-label="Refresh topic list"`)
 - Topic list: `ul` with `space-y-1`, max-height fills viewport minus header, `overflow-y-auto`
-- Topic list item (unselected): `bg-gray-700 hover:bg-gray-600 px-4 py-3 rounded-md cursor-pointer text-gray-200 text-sm`
-- Topic list item (selected): `bg-purple-600 px-4 py-3 rounded-md cursor-pointer text-white text-sm font-semibold`
+- Topic list item (unselected): `bg-gray-700 hover:bg-gray-600 px-4 py-4 rounded-md cursor-pointer text-gray-200 text-sm`
+- Topic list item (selected): `bg-purple-600 px-4 py-4 rounded-md cursor-pointer text-white text-sm font-semibold`
 - Domain badge: `text-xs px-2 py-0.5 rounded-full` inline after topic name
   - Retail: `bg-cyan-900/40 text-cyan-400`
   - FSI: `bg-blue-900/40 text-blue-400`
@@ -182,7 +185,7 @@ Selected sidebar item: `bg-purple-600 text-white font-semibold` (carried from fl
 ### Header
 
 - Container: `bg-gray-800/50 backdrop-blur-sm border-b border-gray-700 px-6 h-14 flex items-center justify-between`
-- App title: `text-xl font-bold` — "bride of " `text-gray-400` + "flink" `text-cyan-400` + "enstein" `text-purple-400`
+- App title: `text-xl font-semibold` — "bride of " `text-gray-400` + "flink" `text-cyan-400` + "enstein" `text-purple-400`
 - Connection status badge (right side): `text-xs px-2 py-1 rounded-full border`
   - Connected: `border-green-500/40 text-green-400 bg-green-900/20`
   - Disconnected: `border-red-500/40 text-red-400 bg-red-900/20`
@@ -267,7 +270,8 @@ Selected sidebar item: `bg-purple-600 text-white font-semibold` (carried from fl
 - Live badge: `aria-live="polite"` for connection state changes
 - Message list: `aria-live="polite" aria-atomic="false"` for new message prepend
 - Spinner elements: `aria-label="Loading"` with `role="status"`
-- Minimum touch target: 44px height on sidebar items (achieved via `py-3` + 14px font line + padding = 44px)
+- Refresh icon button: `aria-label="Refresh topic list"` (icon-only button, no visible text label)
+- Minimum touch target: 44px height on sidebar items (achieved via `py-4` + 14px font line = 46px — passes)
 - Color contrast: all text on dark surfaces meets WCAG AA (gray-200 on gray-800 = 7.5:1; cyan-400 on gray-800 = 4.8:1)
 
 ---
