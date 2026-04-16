@@ -5,7 +5,7 @@ Phase 2: NLP-to-SQL Query with Validation and Sample Output
 
 ## Progress
 - Phase 1: Context gathered, ready for planning
-- Phase 2: In progress — Plan 02 (LLM Service + System Prompt) complete
+- Phase 2: In progress — Plans 02-01 and 02-02 complete
 - Phase 3: Not started
 
 ## Decisions Made
@@ -15,13 +15,17 @@ Phase 2: NLP-to-SQL Query with Validation and Sample Output
 - JSON fence fallback parsing: direct parse -> json fence -> plain fence -> first { } object
 - In-memory sessions Map with 1-hour TTL for conversational follow-ups
 - Shared mockMessagesCreate pattern in tests for reliable Anthropic SDK call tracking
+- babel-jest transform for dt-sql-parser ESM deps (antlr4-c3, antlr4ng) to run in jest CJS environment
+- extractTableNamesFromSQL() pre-pass before field extraction prevents false unknown-field errors
+- Traffic light red only on hasUnknownFields (not all catalog issues) — type warnings yield green not red
 
 ## Session Log
 - 2026-04-13: Phase 1 context gathered via discuss-phase
+- 2026-04-16: Phase 2 Plan 02-01 executed — SQL validation service, Schema Registry bulk fetch, Jest infrastructure (106 tests passing)
 - 2026-04-16: Phase 2 Plan 02-02 executed — LLM service, system prompt, few-shot examples, mock data service (80 tests passing)
 
 ## Blockers/Concerns
 None
 
 ## Last Stopped At
-Completed phase 02, plan 02-02: LLM Service + System Prompt + Mock Data Service
+Completed phase 02, plan 02-01: SQL Validation Service + Test Infrastructure + Schema Registry Enhancement
