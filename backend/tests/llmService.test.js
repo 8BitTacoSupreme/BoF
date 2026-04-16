@@ -1,31 +1,20 @@
 'use strict';
 
+// Stable mock for messages.create — shared across all instances
+// This must be defined before jest.mock is called
+const mockMessagesCreate = jest.fn();
+
 // Mock the Anthropic SDK before requiring llmService
 jest.mock('@anthropic-ai/sdk', () => {
-  // Canned JSON response from Claude
-  const cannedResponse = JSON.stringify({
-    sql: 'CREATE TABLE retail_orders_source (\n  `order_id` BIGINT\n) WITH (\n  \'connector\' = \'kafka\'\n);\n\nCREATE TABLE result_sink (\n  `order_id` BIGINT\n) WITH (\n  \'connector\' = \'kafka\'\n);\n\nINSERT INTO result_sink SELECT `order_id` FROM retail_orders_source;',
-    outputSchema: [{ field: 'order_id', type: 'BIGINT' }],
-    mockRows: [{ order_id: 1001 }, { order_id: 1002 }, { order_id: 1003 }],
-    reasoning: 'Using retail.orders topic for order_id field',
-  });
-
-  const mockCreate = jest.fn().mockResolvedValue({
-    content: [{ text: cannedResponse }],
-  });
-
+  // Return a constructor that always uses the shared mockMessagesCreate
   return jest.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
+    messages: { create: mockMessagesCreate },
   }));
 });
 
 // Mock sqlValidationService to control validation outcomes in tests
 jest.mock('../src/services/sqlValidationService', () => ({
-  validateAndClassify: jest.fn().mockReturnValue({
-    status: 'green',
-    syntaxErrors: [],
-    catalogIssues: [],
-  }),
+  validateAndClassify: jest.fn(),
 }));
 
 const Anthropic = require('@anthropic-ai/sdk');
@@ -37,31 +26,25 @@ const {
   buildCorrectionPrompt,
 } = require('../src/services/llmService');
 
-// Get the mockCreate function from the mocked Anthropic instance
-const getMockCreate = () => {
-  const instance = new Anthropic();
-  return instance.messages.create;
-};
+// Canned response for a valid green Claude response
+const makeCannedResponse = (sql = 'SELECT 1', extra = {}) =>
+  JSON.stringify({
+    sql,
+    outputSchema: [{ field: 'order_id', type: 'BIGINT' }],
+    mockRows: [{ order_id: 1001 }, { order_id: 1002 }],
+    reasoning: 'Using retail.orders',
+    ...extra,
+  });
 
 beforeEach(() => {
   jest.clearAllMocks();
 
-  // Reset Anthropic mock to return canned green response
-  const cannedResponse = JSON.stringify({
-    sql: 'CREATE TABLE retail_orders_source (`order_id` BIGINT) WITH (\'connector\'=\'kafka\');\nCREATE TABLE result_sink (`order_id` BIGINT) WITH (\'connector\'=\'kafka\');\nINSERT INTO result_sink SELECT `order_id` FROM retail_orders_source;',
-    outputSchema: [{ field: 'order_id', type: 'BIGINT' }],
-    mockRows: [{ order_id: 1001 }, { order_id: 1002 }],
-    reasoning: 'Using retail.orders',
+  // Default: Claude returns a canned valid response
+  mockMessagesCreate.mockResolvedValue({
+    content: [{ text: makeCannedResponse() }],
   });
 
-  Anthropic.mockImplementation(() => ({
-    messages: {
-      create: jest.fn().mockResolvedValue({
-        content: [{ text: cannedResponse }],
-      }),
-    },
-  }));
-
+  // Default: validation returns green
   validateAndClassify.mockReturnValue({
     status: 'green',
     syntaxErrors: [],
@@ -69,67 +52,53 @@ beforeEach(() => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
 describe('callClaude', () => {
   it('calls Anthropic messages.create with model claude-sonnet-4-6', async () => {
-    const mockInstance = new Anthropic();
-    const result = await callClaude('system prompt', [{ role: 'user', content: 'hello' }]);
+    await callClaude('system prompt', [{ role: 'user', content: 'hello' }]);
 
-    expect(mockInstance.messages.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'claude-sonnet-4-6',
-      })
+    expect(mockMessagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'claude-sonnet-4-6' })
     );
   });
 
   it('calls with max_tokens of 4096', async () => {
-    const mockInstance = new Anthropic();
     await callClaude('system prompt', [{ role: 'user', content: 'hello' }]);
 
-    expect(mockInstance.messages.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        max_tokens: 4096,
-      })
+    expect(mockMessagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ max_tokens: 4096 })
     );
   });
 
   it('calls with the provided system prompt', async () => {
-    const mockInstance = new Anthropic();
     await callClaude('my system prompt', [{ role: 'user', content: 'hello' }]);
 
-    expect(mockInstance.messages.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        system: 'my system prompt',
-      })
+    expect(mockMessagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ system: 'my system prompt' })
     );
   });
 
   it('calls with the provided messages array', async () => {
-    const mockInstance = new Anthropic();
     const messages = [{ role: 'user', content: 'test query' }];
     await callClaude('system', messages);
 
-    expect(mockInstance.messages.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        messages,
-      })
+    expect(mockMessagesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ messages })
     );
   });
 
   it('returns the text content of the first content block', async () => {
-    const expectedText = JSON.stringify({ sql: 'SELECT 1', outputSchema: [], mockRows: [], reasoning: 'test' });
-    Anthropic.mockImplementationOnce(() => ({
-      messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ text: expectedText }],
-        }),
-      },
-    }));
+    const expectedText = makeCannedResponse('SELECT 42');
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{ text: expectedText }],
+    });
 
     const result = await callClaude('system', [{ role: 'user', content: 'q' }]);
     expect(result).toBe(expectedText);
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
 describe('generateFlinkSQL', () => {
   const schemas = {
     'retail.orders': {
@@ -154,13 +123,9 @@ describe('generateFlinkSQL', () => {
       reasoning: 'test',
     });
 
-    Anthropic.mockImplementationOnce(() => ({
-      messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ text: `\`\`\`json\n${jsonContent}\n\`\`\`` }],
-        }),
-      },
-    }));
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{ text: `\`\`\`json\n${jsonContent}\n\`\`\`` }],
+    });
 
     const result = await generateFlinkSQL('show me orders', schemas);
 
@@ -176,36 +141,30 @@ describe('generateFlinkSQL', () => {
       reasoning: 'fenced',
     });
 
-    Anthropic.mockImplementationOnce(() => ({
-      messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ text: `\`\`\`\n${jsonContent}\n\`\`\`` }],
-        }),
-      },
-    }));
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{ text: `\`\`\`\n${jsonContent}\n\`\`\`` }],
+    });
 
     const result = await generateFlinkSQL('count orders', schemas);
     expect(result.sql).toBe('SELECT 2');
   });
 
   it('builds messages array starting with user query when messageHistory is empty', async () => {
-    const mockInstance = new Anthropic();
     await generateFlinkSQL('show me orders', schemas, []);
 
-    const callArgs = mockInstance.messages.create.mock.calls[0][0];
+    const callArgs = mockMessagesCreate.mock.calls[0][0];
     expect(callArgs.messages).toEqual([{ role: 'user', content: 'show me orders' }]);
   });
 
   it('appends user query to existing messageHistory', async () => {
-    const mockInstance = new Anthropic();
     const history = [
       { role: 'user', content: 'first query' },
-      { role: 'assistant', content: '{"sql":"SELECT 1","outputSchema":[],"mockRows":[],"reasoning":"first"}' },
+      { role: 'assistant', content: makeCannedResponse() },
     ];
 
     await generateFlinkSQL('follow-up query', schemas, history);
 
-    const callArgs = mockInstance.messages.create.mock.calls[0][0];
+    const callArgs = mockMessagesCreate.mock.calls[0][0];
     expect(callArgs.messages).toHaveLength(3);
     expect(callArgs.messages[2]).toEqual({ role: 'user', content: 'follow-up query' });
   });
@@ -217,6 +176,7 @@ describe('generateFlinkSQL', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
 describe('generateWithSelfCorrection', () => {
   const schemas = { 'retail.orders': { fields: [{ name: 'order_id', type: 'long' }] } };
 
@@ -230,7 +190,12 @@ describe('generateWithSelfCorrection', () => {
   });
 
   it('returns result when validation returns yellow (green enough)', async () => {
-    validateAndClassify.mockReturnValue({ status: 'yellow', syntaxErrors: [], catalogIssues: [], warnings: ['No WATERMARK'] });
+    validateAndClassify.mockReturnValue({
+      status: 'yellow',
+      syntaxErrors: [],
+      catalogIssues: [],
+      warnings: ['No WATERMARK'],
+    });
 
     const result = await generateWithSelfCorrection('show me orders', schemas);
 
@@ -239,7 +204,7 @@ describe('generateWithSelfCorrection', () => {
   });
 
   it('retries when validation returns red and eventually succeeds', async () => {
-    // First call returns red, second returns green
+    // First call: red. Second call: green.
     validateAndClassify
       .mockReturnValueOnce({ status: 'red', syntaxErrors: [{ message: 'Invalid syntax' }], catalogIssues: [] })
       .mockReturnValueOnce({ status: 'green', syntaxErrors: [], catalogIssues: [] });
@@ -265,47 +230,24 @@ describe('generateWithSelfCorrection', () => {
   });
 
   it('maintains conversation context across retries (messages array grows)', async () => {
-    const mockCreate = jest.fn();
-    Anthropic.mockImplementation(() => ({
-      messages: { create: mockCreate },
-    }));
-
-    const cannedResp = JSON.stringify({
-      sql: 'SELECT 1',
-      outputSchema: [],
-      mockRows: [],
-      reasoning: 'test',
-    });
-
-    mockCreate.mockResolvedValue({ content: [{ text: cannedResp }] });
-
+    // First attempt: red. Second attempt: green.
     validateAndClassify
       .mockReturnValueOnce({ status: 'red', syntaxErrors: [{ message: 'Error 1' }], catalogIssues: [] })
       .mockReturnValueOnce({ status: 'green', syntaxErrors: [], catalogIssues: [] });
 
     await generateWithSelfCorrection('test query', schemas, [], 3);
 
-    // Second call should have more messages than first call
-    const firstCallMessages = mockCreate.mock.calls[0][0].messages;
-    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+    // Second Claude call should have more messages than the first
+    const firstCallMessages = mockMessagesCreate.mock.calls[0][0].messages;
+    const secondCallMessages = mockMessagesCreate.mock.calls[1][0].messages;
 
     expect(secondCallMessages.length).toBeGreaterThan(firstCallMessages.length);
   });
 
   it('includes previous SQL and errors in the correction message', async () => {
-    const mockCreate = jest.fn();
-    Anthropic.mockImplementation(() => ({
-      messages: { create: mockCreate },
-    }));
-
-    const cannedResp = JSON.stringify({
-      sql: 'BROKEN SQL',
-      outputSchema: [],
-      mockRows: [],
-      reasoning: 'test',
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ text: makeCannedResponse('BROKEN SQL') }],
     });
-
-    mockCreate.mockResolvedValue({ content: [{ text: cannedResp }] });
 
     validateAndClassify
       .mockReturnValueOnce({ status: 'red', syntaxErrors: [{ message: 'syntax error here' }], catalogIssues: [] })
@@ -314,7 +256,7 @@ describe('generateWithSelfCorrection', () => {
     await generateWithSelfCorrection('test', schemas, [], 3);
 
     // The second call's messages should include a correction message referencing the error
-    const secondCallMessages = mockCreate.mock.calls[1][0].messages;
+    const secondCallMessages = mockMessagesCreate.mock.calls[1][0].messages;
     const correctionMsg = secondCallMessages[secondCallMessages.length - 1];
     expect(correctionMsg.role).toBe('user');
     expect(correctionMsg.content).toContain('syntax error here');
@@ -325,7 +267,7 @@ describe('generateWithSelfCorrection', () => {
 
     const history = [
       { role: 'user', content: 'show me orders' },
-      { role: 'assistant', content: '{"sql":"SELECT 1","outputSchema":[],"mockRows":[],"reasoning":"first"}' },
+      { role: 'assistant', content: makeCannedResponse() },
     ];
 
     const result = await generateWithSelfCorrection('make it weekly', schemas, history);
@@ -334,6 +276,7 @@ describe('generateWithSelfCorrection', () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
 describe('buildCorrectionPrompt', () => {
   it('includes the original SQL in the correction prompt', () => {
     const sql = 'SELECT order_id FROM orders';
@@ -346,10 +289,7 @@ describe('buildCorrectionPrompt', () => {
 
   it('includes all error messages in the correction prompt', () => {
     const sql = 'SELECT x FROM y';
-    const errors = [
-      { message: 'Error 1' },
-      { message: 'Error 2' },
-    ];
+    const errors = [{ message: 'Error 1' }, { message: 'Error 2' }];
 
     const prompt = buildCorrectionPrompt(sql, errors);
 
