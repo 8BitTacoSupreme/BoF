@@ -5,7 +5,7 @@ Phase 2: NLP-to-SQL Query with Validation and Sample Output
 
 ## Progress
 - Phase 1: Context gathered, ready for planning
-- Phase 2: In progress — Plans 02-01, 02-02, and 02-03 complete
+- Phase 2: In progress — Plans 02-01, 02-02, and 02-03 complete; 02-04 Task 1 complete, awaiting human-verify checkpoint
 - Phase 3: Not started
 
 ## Decisions Made
@@ -28,9 +28,10 @@ Phase 2: NLP-to-SQL Query with Validation and Sample Output
 - 2026-04-16: Phase 2 Plan 02-01 executed — SQL validation service, Schema Registry bulk fetch, Jest infrastructure (106 tests passing)
 - 2026-04-16: Phase 2 Plan 02-02 executed — LLM service, system prompt, few-shot examples, mock data service (80 tests passing)
 - 2026-04-16: Phase 2 Plan 02-03 executed — Express API routes (POST /api/query, /api/query/refine, /api/query/validate, GET /api/schemas), React frontend (QueryBuilder, SqlEditor, SampleOutput, ValidationIndicator), 131 backend tests passing, frontend build clean
+- 2026-04-16: Phase 2 Plan 02-04 Task 1 executed — canonical integration test (backend/tests/canonical.test.js, commit 3a4c2f8). Paused at human-verify checkpoint.
 
 ## Blockers/Concerns
 None
 
 ## Last Stopped At
-Completed phase 02, plan 02-03: API Routes + Frontend Query Builder with Monaco SQL Editor and Sample Output
+Phase 02, plan 02-04, Task 1 complete (canonical integration test committed 3a4c2f8). Paused at Task 2: human-verify checkpoint — awaiting end-to-end UX verification.
