@@ -28,11 +28,25 @@ jest.mock('../src/services/schemaRegistryService', () => ({
 
 jest.mock('../src/services/sqlValidationService', () => ({
   validateAndClassify: jest.fn(),
+  splitStatements: jest.fn(),
 }));
 
 jest.mock('../src/services/mockDataService', () => ({
   parseMockRows: jest.fn(),
   generateFallbackMockRows: jest.fn(),
+}));
+
+jest.mock('../src/services/flinkService', () => ({
+  deployJob: jest.fn(),
+  stopJob: jest.fn(),
+  getJobStatus: jest.fn(),
+  isGatewayHealthy: jest.fn(),
+  extractOutputTopicFromSql: jest.fn(),
+  flink_jobs: new Map(),
+}));
+
+jest.mock('../src/services/kafkaConsumerService', () => ({
+  tailMessages: jest.fn(),
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -43,6 +57,8 @@ const { generateWithSelfCorrection, sessions } = require('../src/services/llmSer
 const { getAllSchemas } = require('../src/services/schemaRegistryService');
 const { validateAndClassify } = require('../src/services/sqlValidationService');
 const { parseMockRows, generateFallbackMockRows } = require('../src/services/mockDataService');
+const flinkService = require('../src/services/flinkService');
+const { tailMessages } = require('../src/services/kafkaConsumerService');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared fixtures
@@ -73,6 +89,8 @@ const MOCK_LLM_RESULT = {
   rawResponse: '{"sql":"SELECT order_id, status FROM retail.orders","outputSchema":[{"field":"order_id","type":"BIGINT"}],"mockRows":[{"order_id":1001,"status":"completed"}],"reasoning":"Direct selection"}',
   validation: { status: 'green', attempts: 1 },
 };
+
+const SAMPLE_SQL = "CREATE TABLE derived_output (order_id BIGINT) WITH ('topic' = 'derived.orders'); INSERT INTO derived_output SELECT order_id FROM retail.orders";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/query
@@ -360,6 +378,29 @@ describe('GET /api/schemas', () => {
     expect(res.body[0].fields[0]).toEqual({ name: 'reason', type: 'STRING' });
   });
 
+  it('returns isDerived: true for topics starting with "derived."', async () => {
+    getAllSchemas.mockResolvedValue({
+      'derived.customer_return_rates': {
+        name: 'CustomerReturnRates',
+        fields: [{ name: 'product_id', type: 'string' }],
+      },
+    });
+
+    const res = await request(app).get('/api/schemas');
+
+    expect(res.status).toBe(200);
+    expect(res.body[0].isDerived).toBe(true);
+  });
+
+  it('returns isDerived: false for non-derived topics', async () => {
+    getAllSchemas.mockResolvedValue(MOCK_SCHEMAS);
+
+    const res = await request(app).get('/api/schemas');
+
+    expect(res.status).toBe(200);
+    expect(res.body[0].isDerived).toBe(false);
+  });
+
   it('returns 500 when getAllSchemas throws', async () => {
     getAllSchemas.mockRejectedValue(new Error('Schema Registry unreachable'));
 
@@ -451,5 +492,336 @@ describe('POST /api/query/validate', () => {
 
     expect(res.status).toBe(500);
     expect(res.body.error).toBe('SR connection failed');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/query/deploy
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('POST /api/query/deploy', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    flinkService.flink_jobs.clear();
+    flinkService.extractOutputTopicFromSql.mockReturnValue('derived.customer_return_rates');
+    flinkService.deployJob.mockResolvedValue({
+      jobId: 'flink-job-abc123',
+      operationHandle: 'op-handle-xyz',
+      sessionHandle: 'session-handle-abc',
+      outputTopic: 'derived.customer_return_rates',
+    });
+  });
+
+  it('returns 400 when sql is missing', async () => {
+    const res = await request(app)
+      .post('/api/query/deploy')
+      .send({})
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('sql is required');
+  });
+
+  it('returns 400 when sql is empty string', async () => {
+    const res = await request(app)
+      .post('/api/query/deploy')
+      .send({ sql: '   ' })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('sql is required');
+  });
+
+  it('returns 400 when sql is not a string', async () => {
+    const res = await request(app)
+      .post('/api/query/deploy')
+      .send({ sql: 42 })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('sql is required');
+  });
+
+  it('returns 200 with jobId, state: Submitting, and outputTopic immediately', async () => {
+    const res = await request(app)
+      .post('/api/query/deploy')
+      .send({ sql: SAMPLE_SQL })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      state: 'Submitting',
+      outputTopic: 'derived.customer_return_rates',
+    });
+    expect(res.body.jobId).toBeDefined();
+    expect(typeof res.body.jobId).toBe('string');
+  });
+
+  it('calls extractOutputTopicFromSql with the provided sql', async () => {
+    await request(app)
+      .post('/api/query/deploy')
+      .send({ sql: SAMPLE_SQL })
+      .set('Content-Type', 'application/json');
+
+    expect(flinkService.extractOutputTopicFromSql).toHaveBeenCalledWith(SAMPLE_SQL);
+  });
+
+  it('stores job in flink_jobs Map with Submitting state', async () => {
+    const res = await request(app)
+      .post('/api/query/deploy')
+      .send({ sql: SAMPLE_SQL })
+      .set('Content-Type', 'application/json');
+
+    const { jobId } = res.body;
+    expect(flinkService.flink_jobs.has(jobId)).toBe(true);
+    const job = flinkService.flink_jobs.get(jobId);
+    expect(job.state).toBe('Submitting');
+    expect(job.outputTopic).toBe('derived.customer_return_rates');
+  });
+
+  it('uses fallback outputTopic when extractOutputTopicFromSql returns null', async () => {
+    flinkService.extractOutputTopicFromSql.mockReturnValue(null);
+
+    const res = await request(app)
+      .post('/api/query/deploy')
+      .send({ sql: SAMPLE_SQL })
+      .set('Content-Type', 'application/json');
+
+    expect(res.status).toBe(200);
+    expect(res.body.outputTopic).toMatch(/^derived\.job-/);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/jobs/:id
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('GET /api/jobs/:id', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    flinkService.flink_jobs.clear();
+  });
+
+  it('returns 404 for unknown job IDs', async () => {
+    const res = await request(app).get('/api/jobs/nonexistent-job-id');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it('returns 200 with job details for known job', async () => {
+    flinkService.flink_jobs.set('test-job-1', {
+      operationHandle: 'op-abc',
+      sessionHandle: 'session-abc',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 5000,
+    });
+
+    const res = await request(app).get('/api/jobs/test-job-1');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      jobId: 'test-job-1',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      operationHandle: 'op-abc',
+    });
+    expect(typeof res.body.elapsed).toBe('number');
+    expect(res.body.elapsed).toBeGreaterThan(0);
+  });
+
+  it('refreshes state from Flink JobManager when flinkJobId is present', async () => {
+    flinkService.flink_jobs.set('test-job-2', {
+      operationHandle: 'op-abc',
+      sessionHandle: 'session-abc',
+      flinkJobId: 'flink-abc123',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 3000,
+    });
+    flinkService.getJobStatus.mockResolvedValue({ state: 'Failed', startTime: null });
+
+    const res = await request(app).get('/api/jobs/test-job-2');
+
+    expect(res.status).toBe(200);
+    expect(flinkService.getJobStatus).toHaveBeenCalledWith('flink-abc123');
+    expect(res.body.state).toBe('Failed');
+  });
+
+  it('keeps last known state when getJobStatus throws', async () => {
+    flinkService.flink_jobs.set('test-job-3', {
+      operationHandle: 'op-abc',
+      sessionHandle: 'session-abc',
+      flinkJobId: 'flink-xyz',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 1000,
+    });
+    flinkService.getJobStatus.mockRejectedValue(new Error('JobManager unreachable'));
+
+    const res = await request(app).get('/api/jobs/test-job-3');
+
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe('Running'); // Last known state preserved
+  });
+
+  it('does not call getJobStatus for terminal states', async () => {
+    flinkService.flink_jobs.set('stopped-job', {
+      operationHandle: 'op-abc',
+      sessionHandle: 'session-abc',
+      flinkJobId: 'flink-stopped',
+      state: 'Stopped',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 10000,
+    });
+
+    const res = await request(app).get('/api/jobs/stopped-job');
+
+    expect(res.status).toBe(200);
+    expect(flinkService.getJobStatus).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/jobs/:id
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('DELETE /api/jobs/:id', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    flinkService.flink_jobs.clear();
+    flinkService.stopJob.mockResolvedValue();
+  });
+
+  it('returns 404 for unknown job IDs', async () => {
+    const res = await request(app).delete('/api/jobs/nonexistent-job');
+
+    expect(res.status).toBe(404);
+    expect(res.body.error).toMatch(/not found/i);
+  });
+
+  it('returns 200 with state: Stopped for existing job', async () => {
+    flinkService.flink_jobs.set('running-job', {
+      operationHandle: 'op-abc',
+      sessionHandle: 'session-abc',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 2000,
+    });
+
+    const res = await request(app).delete('/api/jobs/running-job');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ jobId: 'running-job', state: 'Stopped' });
+  });
+
+  it('calls stopJob when job has operationHandle and sessionHandle', async () => {
+    flinkService.flink_jobs.set('running-job-2', {
+      operationHandle: 'op-def',
+      sessionHandle: 'session-def',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 2000,
+    });
+
+    await request(app).delete('/api/jobs/running-job-2');
+
+    expect(flinkService.stopJob).toHaveBeenCalledWith('running-job-2');
+  });
+
+  it('marks job as Stopped in flink_jobs Map', async () => {
+    flinkService.flink_jobs.set('running-job-3', {
+      operationHandle: 'op-ghi',
+      sessionHandle: 'session-ghi',
+      state: 'Running',
+      outputTopic: 'derived.test_topic',
+      createdAt: Date.now() - 2000,
+    });
+
+    await request(app).delete('/api/jobs/running-job-3');
+
+    const job = flinkService.flink_jobs.get('running-job-3');
+    expect(job.state).toBe('Stopped');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/topics/:topic/messages
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('GET /api/topics/:topic/messages', () => {
+  const MOCK_MESSAGES_RESULT = {
+    messages: [
+      { offset: '0', value: '{"product_id":"p1","return_rate":0.05}', timestamp: '1713398400000' },
+      { offset: '1', value: '{"product_id":"p2","return_rate":0.12}', timestamp: '1713398401000' },
+    ],
+    nextOffset: 2,
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    tailMessages.mockResolvedValue(MOCK_MESSAGES_RESULT);
+  });
+
+  it('returns 200 with messages and nextOffset', async () => {
+    const res = await request(app).get('/api/topics/derived.customer_return_rates/messages');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      messages: expect.arrayContaining([
+        expect.objectContaining({ offset: '0' }),
+      ]),
+      nextOffset: 2,
+    });
+  });
+
+  it('calls tailMessages with the topic name', async () => {
+    await request(app).get('/api/topics/derived.customer_return_rates/messages');
+
+    expect(tailMessages).toHaveBeenCalledWith(
+      'derived.customer_return_rates',
+      expect.any(Number),
+      expect.anything()
+    );
+  });
+
+  it('passes limit query param to tailMessages', async () => {
+    await request(app).get('/api/topics/derived.customer_return_rates/messages?limit=5');
+
+    expect(tailMessages).toHaveBeenCalledWith(
+      'derived.customer_return_rates',
+      5,
+      expect.anything()
+    );
+  });
+
+  it('passes since query param to tailMessages', async () => {
+    await request(app).get('/api/topics/derived.customer_return_rates/messages?limit=5&since=10');
+
+    expect(tailMessages).toHaveBeenCalledWith(
+      'derived.customer_return_rates',
+      5,
+      '10'
+    );
+  });
+
+  it('uses default limit of 10 when not specified', async () => {
+    await request(app).get('/api/topics/derived.test_topic/messages');
+
+    expect(tailMessages).toHaveBeenCalledWith(
+      'derived.test_topic',
+      10,
+      expect.anything()
+    );
+  });
+
+  it('returns 500 when tailMessages throws', async () => {
+    tailMessages.mockRejectedValue(new Error('Kafka connection error'));
+
+    const res = await request(app).get('/api/topics/derived.test_topic/messages');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Kafka connection error');
   });
 });
