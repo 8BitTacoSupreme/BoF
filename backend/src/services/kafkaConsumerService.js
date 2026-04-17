@@ -100,6 +100,13 @@ async function tailMessages(topicName, limit = 10, sinceOffset = null) {
             }
           },
         })
+        .then(() => {
+          // run() resolving means the consumer has finished processing available
+          // messages (e.g. mock returns, or real consumer drains the assigned partitions).
+          // Resolve the outer promise so we don't wait the full timeout.
+          clearTimeout(timeout);
+          resolve();
+        })
         .catch(reject);
     });
   } catch (err) {
