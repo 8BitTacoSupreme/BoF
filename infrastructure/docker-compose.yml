@@ -88,7 +88,8 @@ services:
       schema-registry:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/overview | grep -q 'flink-version'"]
+      # Use bash TCP because cp-flink image has no wget or curl
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8081 && echo -e \"GET /overview HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && cat <&3' 2>/dev/null | grep -q 'flink-version'"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -107,7 +108,8 @@ services:
       jobmanager:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://jobmanager:8081/taskmanagers | grep -q 'id'"]
+      # Poll jobmanager for registered taskmanager; bash TCP because no wget/curl in image
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/jobmanager/8081 && echo -e \"GET /taskmanagers HTTP/1.0\\r\\nHost: jobmanager\\r\\n\\r\\n\" >&3 && cat <&3' 2>/dev/null | grep -q '\"id\"'"]
       interval: 10s
       timeout: 5s
       retries: 30
@@ -138,7 +140,8 @@ services:
       FLINK_JOBMANAGER_RPC_ADDRESS: jobmanager
       FLINK_PROPERTIES: "jobmanager.rpc.address:jobmanager"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8083/v1/info | grep -q 'productName'"]
+      # Use bash TCP because cp-flink image has no wget or curl
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/8083 && echo -e \"GET /v1/info HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n\" >&3 && cat <&3' 2>/dev/null | grep -q 'productName'"]
       interval: 10s
       timeout: 5s
       retries: 12
