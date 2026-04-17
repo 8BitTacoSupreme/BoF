@@ -29,4 +29,4 @@ Plans:
 - [x] 03-02-PLAN.md -- Backend services: flinkService.js (SQL Gateway REST client, session management, DDL/DML submission, job tracking) + kafkaConsumerService.js (per-request message tailing)
 - [x] 03-03-PLAN.md -- Backend API routes: POST /api/query/deploy, GET /api/jobs/:id, DELETE /api/jobs/:id, GET /api/topics/:topic/messages + extend GET /api/schemas with isDerived flag
 - [x] 03-04-PLAN.md -- Frontend: Push Live button, DeploymentStatusPanel (state pill, live messages table, error areas, stop confirmation), polling hooks, derived topic badge in Schema Sidebar
-- [ ] 03-05-PLAN.md -- Guarded Flink integration test + end-to-end human verification checkpoint
+- [x] 03-05-PLAN.md -- Guarded Flink integration test + end-to-end human verification checkpoint
