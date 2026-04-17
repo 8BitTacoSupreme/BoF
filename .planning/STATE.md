@@ -3,25 +3,25 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 03
-last_updated: "2026-04-17T11:29:53.774Z"
+last_updated: "2026-04-17T12:13:32.561Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
+  completed_plans: 8
 ---
 
 # Project State
 
 ## Current Focus
 
-Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-03 complete)
+Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-04 complete — 03-05 E2E checkpoint remains)
 
 ## Progress
 
 - Phase 1: Context gathered, ready for planning
 - Phase 2: Complete — Plans 02-01, 02-02, 02-03, and 02-04 all complete; human-verified end-to-end UX approved
-- Phase 3: In progress — Plans 03-01 (infra/producers), 03-02 (backend services), and 03-03 (API routes) complete; 03-04 (frontend) remains
+- Phase 3: In progress — Plans 03-01 (infra/producers), 03-02 (backend services), 03-03 (API routes), and 03-04 (frontend Push Live) complete; 03-05 (E2E human-verify) remains
 
 ## Decisions Made
 
@@ -45,6 +45,7 @@ Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-03 complete)
 - [Phase 03]: Kafka connector 4.0.1-2.0 for Flink 2.x (no 2.1-specific version; 4.0.x targets Flink 2.x family)
 - [Phase 03]: POST /api/query/deploy returns immediately with state=Submitting; async deployJob updates flink_jobs Map — frontend polls GET /api/jobs/:id
 - [Phase 03]: isDerived: topic.startsWith('derived.') added to GET /api/schemas response per D-309
+- [Phase 03]: useJobPolling wired at QueryBuilder level for Push Live button gating; DeploymentStatusPanel error classification uses keyword heuristics on error string; schema auto-refresh fires 3s after Running transition
 
 ## Session Log
 
@@ -62,6 +63,10 @@ Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-03 complete)
 
 None
 
+## Session Log (continued)
+
+- 2026-04-17: Phase 3 Plan 03-04 executed — Push Live button, DeploymentStatusPanel (7-state job pill, live messages table, error areas, stop confirmation), useJobPolling (5s), useMessagePolling (2s, 30s timeout), derived topic badge in Schema Sidebar, schema auto-refresh on Running. Frontend builds cleanly (35 modules, 0 errors).
+
 ## Last Stopped At
 
-Completed 03-03: API routes for POST /api/query/deploy, GET /api/jobs/:id, DELETE /api/jobs/:id, GET /api/topics/:topic/messages, and isDerived on GET /api/schemas. 188 backend tests passing. Ready for 03-04 (frontend: Push Live button, Deployment Status Panel, live message display).
+Completed 03-04: Frontend Push Live flow — DeploymentStatusPanel, polling hooks, QueryBuilder extension. Frontend builds cleanly. Ready for 03-05 (E2E human-verify checkpoint).
