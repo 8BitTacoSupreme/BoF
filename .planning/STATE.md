@@ -2,26 +2,26 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: unknown
-last_updated: "2026-04-16T16:15:41.940Z"
+status: Executing Phase 03
+last_updated: "2026-04-17T01:33:55.312Z"
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 9
+  completed_plans: 5
 ---
 
 # Project State
 
 ## Current Focus
 
-Phase 2: NLP-to-SQL Query with Validation and Sample Output
+Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-02 complete)
 
 ## Progress
 
 - Phase 1: Context gathered, ready for planning
 - Phase 2: Complete — Plans 02-01, 02-02, 02-03, and 02-04 all complete; human-verified end-to-end UX approved
-- Phase 3: Not started
+- Phase 3: In progress — Plans 03-01 (infra/producers) and 03-02 (backend services) complete; 03-03 (API routes) and 03-04 (frontend) remain
 
 ## Decisions Made
 
@@ -38,6 +38,9 @@ Phase 2: NLP-to-SQL Query with Validation and Sample Output
 - Tailwind v4 CSS-first config — @import tailwindcss in index.css + @tailwindcss/vite plugin (no tailwind.config.js)
 - Frontend bootstrapped as React 19 + Vite 8 (latest create-vite defaults)
 - TopicBrowserPlaceholder in App.jsx holds wiring point for Phase 1 UI when built
+- [Phase 03]: INSERT streaming jobs treat RUNNING as success (not FINISHED) — Flink streaming INSERT stays RUNNING permanently, this is correct behavior (RESEARCH Pitfall 1)
+- [Phase 03]: Per-request KafkaJS consumers with unique bof-tail-{topic}-{timestamp} groupId prevent Kafka group offset pollution across polls
+- [Phase 03]: flinkService session caching: probe GET /v1/sessions/:id, recreate on 404 — stable across Flink 1.x and 2.x
 
 ## Session Log
 
@@ -47,6 +50,7 @@ Phase 2: NLP-to-SQL Query with Validation and Sample Output
 - 2026-04-16: Phase 2 Plan 02-03 executed — Express API routes (POST /api/query, /api/query/refine, /api/query/validate, GET /api/schemas), React frontend (QueryBuilder, SqlEditor, SampleOutput, ValidationIndicator), 131 backend tests passing, frontend build clean
 - 2026-04-16: Phase 2 Plan 02-04 Task 1 executed — canonical integration test (backend/tests/canonical.test.js, commit 3a4c2f8). Paused at human-verify checkpoint.
 - 2026-04-16: Phase 2 Plan 02-04 Task 2 complete — human-verify checkpoint passed (user: "approved"). Phase 2 complete.
+- 2026-04-17: Phase 3 Plan 03-02 executed — flinkService.js (SQL Gateway REST client, session caching, DDL/DML submission, job tracking) and kafkaConsumerService.js (per-request KafkaJS consumer, sinceOffset, nextOffset), 33 new unit tests, 164 backend tests passing total.
 
 ## Blockers/Concerns
 
@@ -54,4 +58,4 @@ None
 
 ## Last Stopped At
 
-Phase 02 complete. All four plans (02-01 through 02-04) executed. Human verification of end-to-end UX approved. Ready for Phase 3 planning.
+Completed 03-02: flinkService.js and kafkaConsumerService.js with TDD unit tests. 164 backend tests passing. Ready for 03-03 (API routes: POST /api/query/deploy, GET /api/jobs/:id, GET /api/topics/:topic/messages).
