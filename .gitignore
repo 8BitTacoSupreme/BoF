@@ -1,0 +1,6 @@
+node_modules/
+infrastructure/producers/node_modules/
+*.db
+flowstate.json
+.env
+.env.*
