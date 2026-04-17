@@ -1,7 +1,7 @@
 /**
  * QueryBuilder.jsx
  *
- * Main Phase 2 component — NLP input → SQL generation → validation → sample output.
+ * Main Phase 2/3 component — NLP input → SQL generation → validation → sample output → Push Live.
  *
  * Layout:
  *   +---------------------------+---------------------------------------+
@@ -9,8 +9,10 @@
  *   | (collapsible)             |                                       |
  *   |  > retail.orders          | [NLP textarea + example prompts]      |
  *   |    - order_id (BIGINT)    | [SqlEditor with Monaco]               |
+ *   |    ...                    | [Push Live button row]                |
+ *   |  > retail.returns         | [DeploymentStatusPanel]               |
  *   |    ...                    | [SampleOutput table/JSON]             |
- *   |  > retail.returns         | [Error display]                       |
+ *   |  > derived.returns ◆      | [Error display]                      |
  *   |    ...                    | [Recent history]                      |
  *   +---------------------------+---------------------------------------+
  *
@@ -21,6 +23,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import SqlEditor from './SqlEditor';
 import SampleOutput from './SampleOutput';
+import DeploymentStatusPanel from './DeploymentStatusPanel';
+import { useJobPolling } from '../hooks/useJobPolling';
 
 const HISTORY_KEY = 'bof-query-history';
 const MAX_HISTORY = 10;
@@ -67,13 +71,21 @@ function SchemaSidebar({ schemas, isOpen, onToggle }) {
             <p className="p-3 text-xs text-gray-500">Loading schemas...</p>
           ) : (
             <ul className="py-1">
-              {schemas.map(({ topic, fields }) => (
+              {schemas.map(({ topic, fields, isDerived }) => (
                 <li key={topic} className="border-b border-gray-700/50">
                   <button
                     onClick={() => toggleTopic(topic)}
                     className="w-full flex items-center justify-between px-3 py-2 text-left text-xs text-cyan-400 font-mono hover:bg-gray-700 transition-colors"
+                    aria-label={isDerived ? `${topic} (derived)` : topic}
                   >
-                    <span className="truncate">{topic}</span>
+                    <span className="truncate flex items-center gap-1">
+                      {topic}
+                      {isDerived && (
+                        <span className="text-xs text-cyan-300 bg-cyan-900/20 rounded px-1.5 py-0.5 font-mono ml-1">
+                          ◆ derived
+                        </span>
+                      )}
+                    </span>
                     <span className="ml-1 text-gray-500" aria-hidden="true">
                       {expandedTopics[topic] ? '▾' : '▸'}
                     </span>
@@ -125,8 +137,19 @@ export default function QueryBuilder({ onNavigateToTopics }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [editedSql, setEditedSql] = useState(null);
 
-  // Fetch schemas on mount
-  useEffect(() => {
+  // Deployment state (Phase 3 — Push Live)
+  const [deployment, setDeployment] = useState(null); // { jobId, outputTopic } | null
+  const [isDeploying, setIsDeploying] = useState(false);
+
+  // Poll job state at QueryBuilder level so we can gate the button
+  const { jobState: deploymentState } = useJobPolling(
+    deployment?.jobId,
+    !!deployment
+  );
+
+  // ── Schema fetch / refresh ────────────────────────────────────────────────
+
+  const refreshSchemas = useCallback(() => {
     fetch('/api/schemas')
       .then((r) => r.json())
       .then((data) => {
@@ -137,9 +160,36 @@ export default function QueryBuilder({ onNavigateToTopics }) {
       });
   }, []);
 
+  // Fetch schemas on mount
+  useEffect(() => {
+    refreshSchemas();
+  }, [refreshSchemas]);
+
+  // Auto-refresh schemas when job reaches Running (D-309)
+  // Delay 3s to give Flink time to register the output schema
+  useEffect(() => {
+    if (deploymentState === 'Running') {
+      const timer = setTimeout(refreshSchemas, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [deploymentState, refreshSchemas]);
+
   // Current SQL to display (edited overrides generated)
   const displaySql = editedSql !== null ? editedSql : result?.sql || '';
   const validationStatus = result?.validation?.status || null;
+
+  // ── Push Live enabled logic ───────────────────────────────────────────────
+
+  const pushLiveEnabled =
+    !isDeploying &&
+    (validationStatus === 'green' || validationStatus === 'yellow') &&
+    (!deployment || deploymentState === 'Failed' || deploymentState === 'Stopped');
+
+  const jobIsActive =
+    deployment &&
+    deploymentState &&
+    deploymentState !== 'Failed' &&
+    deploymentState !== 'Stopped';
 
   // ── Submit handler ────────────────────────────────────────────────────────
 
@@ -180,15 +230,53 @@ export default function QueryBuilder({ onNavigateToTopics }) {
     }
   }, [query, result, sessionId, history]);
 
-  // Keyboard shortcut: Cmd/Ctrl + Enter
+  // ── Push Live handler (D-305) ─────────────────────────────────────────────
+
+  const handlePushLive = useCallback(async () => {
+    const sql = editedSql !== null ? editedSql : result?.sql || '';
+    if (!sql.trim()) return;
+    if (!pushLiveEnabled) return;
+
+    setIsDeploying(true);
+    setDeployment(null);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/query/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Deploy failed');
+      }
+
+      const data = await response.json();
+      setDeployment({ jobId: data.jobId, outputTopic: data.outputTopic });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsDeploying(false);
+    }
+  }, [editedSql, result, pushLiveEnabled]);
+
+  // Keyboard shortcuts
   const handleKeyDown = useCallback(
     (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      // Cmd/Ctrl + Enter → Generate SQL
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
         handleSubmit();
       }
+      // Cmd/Ctrl + Shift + Enter → Push Live
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        handlePushLive();
+      }
     },
-    [handleSubmit]
+    [handleSubmit, handlePushLive]
   );
 
   // ── Re-validate handler ───────────────────────────────────────────────────
@@ -340,7 +428,63 @@ export default function QueryBuilder({ onNavigateToTopics }) {
               validationStatus={validationStatus}
               isProcessing={isValidating}
             />
+
+            {/* ── Push Live button row (D-305) ── */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handlePushLive}
+                disabled={!pushLiveEnabled}
+                className={
+                  'px-4 py-2.5 text-sm font-semibold rounded-md transition-colors ' +
+                  (isDeploying
+                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : jobIsActive
+                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : !pushLiveEnabled
+                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    : 'bg-cyan-600 hover:bg-cyan-500 text-white cursor-pointer')
+                }
+                title={
+                  validationStatus === 'red' || validationStatus === null
+                    ? 'Fix validation errors before pushing live'
+                    : undefined
+                }
+              >
+                {isDeploying ? (
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"
+                      aria-hidden="true"
+                    />
+                    Submitting...
+                  </span>
+                ) : jobIsActive ? (
+                  'Job Running'
+                ) : (
+                  'Push Live'
+                )}
+              </button>
+              <span className="text-xs text-gray-500">or ⌘⇧↵</span>
+            </div>
           </div>
+        )}
+
+        {/* ── Deployment Status Panel (D-306) ── */}
+        {deployment && (
+          <DeploymentStatusPanel
+            jobId={deployment.jobId}
+            outputTopic={deployment.outputTopic}
+            onClose={() => setDeployment(null)}
+            onStopped={() => {
+              // Refresh schemas to keep derived topic visible in sidebar
+              refreshSchemas();
+            }}
+            onRetry={handlePushLive}
+            onEditSql={() => {
+              // Return focus to the SQL editor area (scroll into view)
+              document.getElementById('nlp-input')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+          />
         )}
 
         {/* ── Sample output ── */}
