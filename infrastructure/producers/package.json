@@ -1,0 +1,12 @@
+{
+  "name": "bride-of-flinkenstein-producers",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Continuous data producers for retail, FSI, and fraud domains",
+  "main": "entrypoint.js",
+  "dependencies": {
+    "kafkajs": "^2.2.4",
+    "@kafkajs/confluent-schema-registry": "^3.3.0"
+  }
+}
