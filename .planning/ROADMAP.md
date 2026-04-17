@@ -20,13 +20,13 @@ Plans:
 
 ## Phase 3: user accepts and the sql query is pushed live and the resultant kafka topic appears with real messages
 - **Goal**: Complete push-live pipeline — user accepts generated Flink SQL, system submits it to a local Confluent Platform Flink cluster via SQL Gateway REST API, tracks job lifecycle, and surfaces the resultant Kafka topic with live messages in the UI alongside source topics
-- **Plans:** 2/5 plans executed
+- **Plans:** 3/5 plans executed
 - **Acceptance criteria**: Push Live button deploys Flink SQL job via SQL Gateway; Deployment Status panel shows live state transitions; derived output topic appears in Schema Sidebar with badge; live messages poll into the panel; Stop button halts the job cleanly; Docker Compose stack runs Kafka + Schema Registry + Flink + producers
 - **Status**: Planned
 
 Plans:
 - [x] 03-01-PLAN.md -- Docker Compose infrastructure (cp-kafka, cp-schema-registry, cp-flink, sql-gateway) + Avro schemas + 3 data producers (retail, FSI, fraud) + kafkajs install
 - [x] 03-02-PLAN.md -- Backend services: flinkService.js (SQL Gateway REST client, session management, DDL/DML submission, job tracking) + kafkaConsumerService.js (per-request message tailing)
-- [ ] 03-03-PLAN.md -- Backend API routes: POST /api/query/deploy, GET /api/jobs/:id, DELETE /api/jobs/:id, GET /api/topics/:topic/messages + extend GET /api/schemas with isDerived flag
+- [x] 03-03-PLAN.md -- Backend API routes: POST /api/query/deploy, GET /api/jobs/:id, DELETE /api/jobs/:id, GET /api/topics/:topic/messages + extend GET /api/schemas with isDerived flag
 - [ ] 03-04-PLAN.md -- Frontend: Push Live button, DeploymentStatusPanel (state pill, live messages table, error areas, stop confirmation), polling hooks, derived topic badge in Schema Sidebar
 - [ ] 03-05-PLAN.md -- Guarded Flink integration test + end-to-end human verification checkpoint

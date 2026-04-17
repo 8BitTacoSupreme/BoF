@@ -3,25 +3,25 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 03
-last_updated: "2026-04-17T01:35:22.841Z"
+last_updated: "2026-04-17T11:29:53.774Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 9
-  completed_plans: 6
+  completed_plans: 7
 ---
 
 # Project State
 
 ## Current Focus
 
-Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-02 complete)
+Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-03 complete)
 
 ## Progress
 
 - Phase 1: Context gathered, ready for planning
 - Phase 2: Complete — Plans 02-01, 02-02, 02-03, and 02-04 all complete; human-verified end-to-end UX approved
-- Phase 3: In progress — Plans 03-01 (infra/producers) and 03-02 (backend services) complete; 03-03 (API routes) and 03-04 (frontend) remain
+- Phase 3: In progress — Plans 03-01 (infra/producers), 03-02 (backend services), and 03-03 (API routes) complete; 03-04 (frontend) remains
 
 ## Decisions Made
 
@@ -43,6 +43,8 @@ Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-02 complete)
 - [Phase 03]: flinkService session caching: probe GET /v1/sessions/:id, recreate on 404 — stable across Flink 1.x and 2.x
 - [Phase 03]: Multi-stage Dockerfile.flink: alpine/curl stage to download JARs into cp-flink RHEL minimal image (no wget/curl in base)
 - [Phase 03]: Kafka connector 4.0.1-2.0 for Flink 2.x (no 2.1-specific version; 4.0.x targets Flink 2.x family)
+- [Phase 03]: POST /api/query/deploy returns immediately with state=Submitting; async deployJob updates flink_jobs Map — frontend polls GET /api/jobs/:id
+- [Phase 03]: isDerived: topic.startsWith('derived.') added to GET /api/schemas response per D-309
 
 ## Session Log
 
@@ -54,6 +56,7 @@ Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-02 complete)
 - 2026-04-16: Phase 2 Plan 02-04 Task 2 complete — human-verify checkpoint passed (user: "approved"). Phase 2 complete.
 - 2026-04-17: Phase 3 Plan 03-01 executed — Docker Compose stack (8 services: broker, schema-registry, jobmanager, taskmanager, sql-gateway, 3 producers), custom Flink Dockerfile (multi-stage alpine/curl → cp-flink), 6 Avro schemas, 3 continuous producers (retail/fsi/fraud). kafkajs@2.2.4 added to backend. 164 backend tests passing.
 - 2026-04-17: Phase 3 Plan 03-02 executed — flinkService.js (SQL Gateway REST client, session caching, DDL/DML submission, job tracking) and kafkaConsumerService.js (per-request KafkaJS consumer, sinceOffset, nextOffset), 33 new unit tests, 164 backend tests passing total.
+- 2026-04-17: Phase 3 Plan 03-03 executed — 4 new API routes (POST /api/query/deploy, GET /api/jobs/:id, DELETE /api/jobs/:id, GET /api/topics/:topic/messages) wired to flinkService/kafkaConsumerService; isDerived flag added to GET /api/schemas; 24 new route tests, 188 total tests passing.
 
 ## Blockers/Concerns
 
@@ -61,4 +64,4 @@ None
 
 ## Last Stopped At
 
-Completed 03-02: flinkService.js and kafkaConsumerService.js with TDD unit tests. 164 backend tests passing. Ready for 03-03 (API routes: POST /api/query/deploy, GET /api/jobs/:id, GET /api/topics/:topic/messages).
+Completed 03-03: API routes for POST /api/query/deploy, GET /api/jobs/:id, DELETE /api/jobs/:id, GET /api/topics/:topic/messages, and isDerived on GET /api/schemas. 188 backend tests passing. Ready for 03-04 (frontend: Push Live button, Deployment Status Panel, live message display).
