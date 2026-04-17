@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: Executing Phase 03
-last_updated: "2026-04-17T01:33:55.312Z"
+last_updated: "2026-04-17T01:35:22.841Z"
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 9
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -41,6 +41,8 @@ Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-02 complete)
 - [Phase 03]: INSERT streaming jobs treat RUNNING as success (not FINISHED) — Flink streaming INSERT stays RUNNING permanently, this is correct behavior (RESEARCH Pitfall 1)
 - [Phase 03]: Per-request KafkaJS consumers with unique bof-tail-{topic}-{timestamp} groupId prevent Kafka group offset pollution across polls
 - [Phase 03]: flinkService session caching: probe GET /v1/sessions/:id, recreate on 404 — stable across Flink 1.x and 2.x
+- [Phase 03]: Multi-stage Dockerfile.flink: alpine/curl stage to download JARs into cp-flink RHEL minimal image (no wget/curl in base)
+- [Phase 03]: Kafka connector 4.0.1-2.0 for Flink 2.x (no 2.1-specific version; 4.0.x targets Flink 2.x family)
 
 ## Session Log
 
@@ -50,6 +52,7 @@ Phase 3: SQL Push-Live + Resultant Topic Appearance (Plan 03-02 complete)
 - 2026-04-16: Phase 2 Plan 02-03 executed — Express API routes (POST /api/query, /api/query/refine, /api/query/validate, GET /api/schemas), React frontend (QueryBuilder, SqlEditor, SampleOutput, ValidationIndicator), 131 backend tests passing, frontend build clean
 - 2026-04-16: Phase 2 Plan 02-04 Task 1 executed — canonical integration test (backend/tests/canonical.test.js, commit 3a4c2f8). Paused at human-verify checkpoint.
 - 2026-04-16: Phase 2 Plan 02-04 Task 2 complete — human-verify checkpoint passed (user: "approved"). Phase 2 complete.
+- 2026-04-17: Phase 3 Plan 03-01 executed — Docker Compose stack (8 services: broker, schema-registry, jobmanager, taskmanager, sql-gateway, 3 producers), custom Flink Dockerfile (multi-stage alpine/curl → cp-flink), 6 Avro schemas, 3 continuous producers (retail/fsi/fraud). kafkajs@2.2.4 added to backend. 164 backend tests passing.
 - 2026-04-17: Phase 3 Plan 03-02 executed — flinkService.js (SQL Gateway REST client, session caching, DDL/DML submission, job tracking) and kafkaConsumerService.js (per-request KafkaJS consumer, sinceOffset, nextOffset), 33 new unit tests, 164 backend tests passing total.
 
 ## Blockers/Concerns
