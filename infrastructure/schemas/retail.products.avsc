@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "Product",
+  "namespace": "com.bride.retail",
+  "doc": "A retail product catalog event. product_id is referenced by retail.orders and retail.returns.",
+  "fields": [
+    {"name": "product_id", "type": "long", "doc": "Unique product identifier. Pool: 1-50. Referenced by retail.orders and retail.returns."},
+    {"name": "name", "type": "string", "doc": "Product display name."},
+    {"name": "category", "type": "string", "doc": "Product category: electronics | clothing | home | sports | books | beauty"},
+    {"name": "price", "type": "string", "doc": "Unit price as decimal string (e.g. '29.99'). Use TRY_CAST(price AS DECIMAL(10,2)) in Flink SQL."},
+    {"name": "updated_at", "type": "long", "doc": "Last update as epoch milliseconds. Use TO_TIMESTAMP_LTZ(updated_at, 3) in Flink SQL."}
+  ]
+}

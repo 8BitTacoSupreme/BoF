@@ -1,0 +1,196 @@
+# docker-compose.yml — Bride of Flinkenstein infrastructure
+#
+# Stack: Kafka (KRaft, no ZooKeeper), Schema Registry, Flink (jobmanager +
+# taskmanager + sql-gateway), and three continuous data producers.
+#
+# Port mapping rationale:
+#   9092  → Kafka external (host access)
+#   29092 → Kafka internal (container-to-container)
+#   8081  → Schema Registry (host + container)
+#   8082  → Flink JobManager UI (host 8082 → container 8081; avoids SR collision)
+#   8083  → Flink SQL Gateway (host + container)
+#
+# Dependency chain:
+#   broker → schema-registry → jobmanager → taskmanager → sql-gateway
+#   broker → (producers depend on schema-registry, not on Flink)
+#
+# IMPORTANT: Producers are downstream of schema-registry only — they do not
+# require Flink to be running. This means the stack can be used for topic
+# browsing (Phases 1+2) without waiting for Flink to initialise.
+
+services:
+  broker:
+    image: confluentinc/cp-kafka:7.7.8
+    container_name: broker
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      # KRaft mode — no ZooKeeper required (CP 7.3+)
+      CLUSTER_ID: "BrideOfFlinkensteinCluster1"
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@broker:29093"
+      # EXTERNAL: host access on 9092; PLAINTEXT: inter-container on 29092
+      KAFKA_LISTENERS: "EXTERNAL://0.0.0.0:9092,PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093"
+      KAFKA_ADVERTISED_LISTENERS: "EXTERNAL://localhost:9092,PLAINTEXT://broker:29092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+      # Replication factor 1 is correct for single-broker local dev
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 25s
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.8
+    container_name: schema-registry
+    depends_on:
+      broker:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: "schema-registry"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      # Internal listener (PLAINTEXT) for inter-container comms
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "broker:29092"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  jobmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    container_name: jobmanager
+    command: jobmanager
+    # Host 8082 → container 8081 to avoid collision with Schema Registry on 8081
+    ports:
+      - "8082:8081"
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: jobmanager
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8081/overview | grep -q 'flink-version'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  taskmanager:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    container_name: taskmanager
+    # 4 task slots — enough for the canonical cross-topic JOIN + window aggregation
+    command: taskmanager -Dtaskmanager.numberOfTaskSlots=4
+    environment:
+      JOB_MANAGER_RPC_ADDRESS: jobmanager
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://jobmanager:8081/taskmanagers | grep -q 'id'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  sql-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.flink
+    container_name: sql-gateway
+    depends_on:
+      taskmanager:
+        condition: service_healthy
+    # IMPORTANT: SQL Gateway port is 8083. Kafka Connect also uses 8083 by
+    # convention — but this project has no Connect service, so no collision.
+    # If Connect is added later, remap sql-gateway to 8084:8083.
+    command: >
+      bash -c "/opt/flink/bin/sql-gateway.sh start-foreground
+      -Dsql-gateway.endpoint.rest.address=0.0.0.0
+      -Dsql-gateway.endpoint.rest.port=8083
+      -Djobmanager.rpc.address=jobmanager
+      -Drest.address=jobmanager
+      -Drest.port=8081"
+    ports:
+      - "8083:8083"
+    environment:
+      # These env vars ensure the gateway process uses the correct JobManager
+      FLINK_JOBMANAGER_RPC_ADDRESS: jobmanager
+      FLINK_PROPERTIES: "jobmanager.rpc.address:jobmanager"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/v1/info | grep -q 'productName'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Retail domain: retail.orders, retail.returns, retail.products
+  # Maintains cross-topic referential integrity (D-06): orders ↔ products, returns ↔ orders
+  retail-producer:
+    build:
+      context: ./producers
+    container_name: retail-producer
+    environment:
+      KAFKA_BROKERS: "broker:29092"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      PRODUCER_TYPE: "retail"
+      RUNNING_IN_DOCKER: "true"
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # FSI domain: fsi.transactions, fsi.accounts
+  # Maintains cross-topic referential integrity: transactions reference account_ids
+  fsi-producer:
+    build:
+      context: ./producers
+    container_name: fsi-producer
+    environment:
+      KAFKA_BROKERS: "broker:29092"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      PRODUCER_TYPE: "fsi"
+      RUNNING_IN_DOCKER: "true"
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Fraud domain: fraud.alerts
+  # transaction_ids reference fsi.transactions pool (simulated shared pool)
+  fraud-producer:
+    build:
+      context: ./producers
+    container_name: fraud-producer
+    environment:
+      KAFKA_BROKERS: "broker:29092"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      PRODUCER_TYPE: "fraud"
+      RUNNING_IN_DOCKER: "true"
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  kafka-data:

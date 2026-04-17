@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "Return",
+  "namespace": "com.bride.retail",
+  "doc": "A retail return event. order_id references retail.orders; product_id references retail.products.",
+  "fields": [
+    {"name": "return_id", "type": "long", "doc": "Unique return identifier."},
+    {"name": "order_id", "type": "long", "doc": "References retail.orders.order_id. Referential integrity maintained by producer."},
+    {"name": "product_id", "type": "long", "doc": "References retail.products.product_id. Pool: 1-50."},
+    {"name": "reason", "type": "string", "doc": "Return reason: defective | wrong_size | not_as_described | changed_mind | late_delivery"},
+    {"name": "refund_amount", "type": "string", "doc": "Refund amount as decimal string (e.g. '49.99'). Use TRY_CAST(refund_amount AS DECIMAL(10,2)) in Flink SQL."},
+    {"name": "created_at", "type": "long", "doc": "Event time as epoch milliseconds. Use TO_TIMESTAMP_LTZ(created_at, 3) in Flink SQL."}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "FraudAlert",
+  "namespace": "com.bride.fraud",
+  "doc": "A fraud detection alert. transaction_id references fsi.transactions.",
+  "fields": [
+    {"name": "alert_id", "type": "long", "doc": "Unique alert identifier."},
+    {"name": "transaction_id", "type": "long", "doc": "References fsi.transactions.transaction_id. Referential integrity maintained by simulated pool."},
+    {"name": "risk_score", "type": "double", "doc": "Risk score 0.0 (no risk) to 1.0 (certain fraud)."},
+    {"name": "alert_type", "type": "string", "doc": "Alert category: velocity_check | amount_threshold | geo_anomaly | device_change | pattern_match"},
+    {"name": "created_at", "type": "long", "doc": "Event time as epoch milliseconds. Use TO_TIMESTAMP_LTZ(created_at, 3) in Flink SQL."}
+  ]
+}

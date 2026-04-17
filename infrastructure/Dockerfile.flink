@@ -1,0 +1,71 @@
+# Dockerfile.flink
+# Extends confluentinc/cp-flink:2.1.1-cp1-java21 with the Kafka SQL connector
+# and Confluent Schema Registry Avro serializer JARs.
+#
+# Why a custom Dockerfile: cp-flink does NOT bundle the Kafka connector or
+# Confluent Avro format JARs — same as the Apache base image.
+# These are required for:
+#   - flink-sql-connector-kafka  → Kafka source/sink in CREATE TABLE WITH clauses
+#   - flink-avro-confluent-registry → value.format='avro-confluent' support
+#   - kafka-schema-registry-client → SR wire-format (magic byte + schema ID)
+#
+# JAR version choices:
+#   - flink-sql-connector-kafka 4.0.1-2.0 — Flink 2.x connector (compatible with 2.1.1)
+#   - flink-avro / flink-avro-confluent-registry 2.1.1 — exact match for cp-flink version
+#   - avro 1.12.0 — latest stable; needed at runtime for avro-confluent format
+#   - kafka-schema-registry-client/kafka-avro-serializer 7.7.8 — match cp-kafka version
+#   - kafka-clients 3.7.0 — required by Confluent SR client (org.apache.kafka.common.*)
+#   - guava 32.1.2-jre — required by Confluent SR client (com.google.common.base.Ticker)
+#   - jackson 2.17.x — required by Avro SchemaBuilder at runtime (cp-flink bundles 2.17)
+
+FROM confluentinc/cp-flink:2.1.1-cp1-java21
+
+# Kafka SQL connector for Flink 2.x
+RUN wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-kafka/4.0.1-2.0/flink-sql-connector-kafka-4.0.1-2.0.jar \
+ && chmod 644 /opt/flink/lib/flink-sql-connector-kafka-4.0.1-2.0.jar
+
+# Avro format support (exact Flink version match)
+RUN wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-avro/2.1.1/flink-avro-2.1.1.jar \
+ && wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/apache/flink/flink-avro-confluent-registry/2.1.1/flink-avro-confluent-registry-2.1.1.jar \
+ && chmod 644 /opt/flink/lib/flink-avro-2.1.1.jar \
+                /opt/flink/lib/flink-avro-confluent-registry-2.1.1.jar
+
+# Apache Avro core runtime (required by avro-confluent format)
+RUN wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/apache/avro/avro/1.12.0/avro-1.12.0.jar \
+ && chmod 644 /opt/flink/lib/avro-1.12.0.jar
+
+# Confluent Schema Registry client + Avro serializer (match cp-kafka 7.7.8)
+RUN wget -q -P /opt/flink/lib/ \
+    https://packages.confluent.io/maven/io/confluent/kafka-schema-registry-client/7.7.8/kafka-schema-registry-client-7.7.8.jar \
+ && wget -q -P /opt/flink/lib/ \
+    https://packages.confluent.io/maven/io/confluent/kafka-avro-serializer/7.7.8/kafka-avro-serializer-7.7.8.jar \
+ && wget -q -P /opt/flink/lib/ \
+    https://packages.confluent.io/maven/io/confluent/common-config/7.7.8/common-config-7.7.8.jar \
+ && wget -q -P /opt/flink/lib/ \
+    https://packages.confluent.io/maven/io/confluent/common-utils/7.7.8/common-utils-7.7.8.jar \
+ && chmod 644 /opt/flink/lib/kafka-schema-registry-client-7.7.8.jar \
+                /opt/flink/lib/kafka-avro-serializer-7.7.8.jar \
+                /opt/flink/lib/common-config-7.7.8.jar \
+                /opt/flink/lib/common-utils-7.7.8.jar
+
+# Apache Kafka clients (required by Confluent SR client)
+RUN wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.7.0/kafka-clients-3.7.0.jar \
+ && chmod 644 /opt/flink/lib/kafka-clients-3.7.0.jar
+
+# Google Guava (required by Confluent SR client: com.google.common.base.Ticker)
+RUN wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/com/google/guava/guava/32.1.2-jre/guava-32.1.2-jre.jar \
+ && chmod 644 /opt/flink/lib/guava-32.1.2-jre.jar
+
+# Compression codecs used by Kafka clients (safe to include; small footprint)
+RUN wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/lz4/lz4-java/1.8.0/lz4-java-1.8.0.jar \
+ && wget -q -P /opt/flink/lib/ \
+    https://repo1.maven.org/maven2/org/xerial/snappy/snappy-java/1.1.10.5/snappy-java-1.1.10.5.jar \
+ && chmod 644 /opt/flink/lib/lz4-java-1.8.0.jar \
+                /opt/flink/lib/snappy-java-1.1.10.5.jar

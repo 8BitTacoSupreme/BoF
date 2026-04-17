@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "Transaction",
+  "namespace": "com.bride.fsi",
+  "doc": "A financial services transaction event. account_id references fsi.accounts; transaction_id is referenced by fraud.alerts.",
+  "fields": [
+    {"name": "transaction_id", "type": "long", "doc": "Unique transaction identifier. Referenced by fraud.alerts.transaction_id."},
+    {"name": "account_id", "type": "long", "doc": "References fsi.accounts.account_id. Pool: 1-20."},
+    {"name": "amount", "type": "string", "doc": "Transaction amount as decimal string (e.g. '1500.00'). Use TRY_CAST(amount AS DECIMAL(15,2)) in Flink SQL."},
+    {"name": "currency", "type": "string", "doc": "ISO 4217 currency code: USD | EUR | GBP"},
+    {"name": "transaction_type", "type": "string", "doc": "Transaction type: deposit | withdrawal | transfer | payment"},
+    {"name": "created_at", "type": "long", "doc": "Event time as epoch milliseconds. Use TO_TIMESTAMP_LTZ(created_at, 3) in Flink SQL."}
+  ]
+}

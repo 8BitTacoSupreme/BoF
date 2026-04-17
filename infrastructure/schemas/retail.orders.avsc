@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.bride.retail",
+  "doc": "A retail order event. product_id references retail.products; order_id is referenced by retail.returns.",
+  "fields": [
+    {"name": "order_id", "type": "long", "doc": "Unique order identifier. Referenced by retail.returns.order_id."},
+    {"name": "customer_id", "type": "long", "doc": "Customer who placed the order."},
+    {"name": "product_id", "type": "long", "doc": "References retail.products.product_id. Pool: 1-50."},
+    {"name": "quantity", "type": "int", "doc": "Number of units ordered."},
+    {"name": "total_amount", "type": "string", "doc": "Order total as decimal string (e.g. '49.99'). Use TRY_CAST(total_amount AS DECIMAL(10,2)) in Flink SQL."},
+    {"name": "status", "type": "string", "doc": "Order status: completed | pending | cancelled | shipped"},
+    {"name": "created_at", "type": "long", "doc": "Event time as epoch milliseconds. Use TO_TIMESTAMP_LTZ(created_at, 3) in Flink SQL."}
+  ]
+}

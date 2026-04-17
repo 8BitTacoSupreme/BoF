@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "Account",
+  "namespace": "com.bride.fsi",
+  "doc": "A financial services account snapshot event. account_id is referenced by fsi.transactions.",
+  "fields": [
+    {"name": "account_id", "type": "long", "doc": "Unique account identifier. Pool: 1-20. Referenced by fsi.transactions.account_id."},
+    {"name": "customer_name", "type": "string", "doc": "Account holder full name."},
+    {"name": "account_type", "type": "string", "doc": "Account type: checking | savings | investment | credit"},
+    {"name": "balance", "type": "string", "doc": "Current balance as decimal string (e.g. '10500.00'). Use TRY_CAST(balance AS DECIMAL(15,2)) in Flink SQL."},
+    {"name": "updated_at", "type": "long", "doc": "Last update as epoch milliseconds. Use TO_TIMESTAMP_LTZ(updated_at, 3) in Flink SQL."}
+  ]
+}
