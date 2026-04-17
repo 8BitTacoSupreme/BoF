@@ -4,3 +4,4 @@ infrastructure/producers/node_modules/
 flowstate.json
 .env
 .env.*
+.planning/
